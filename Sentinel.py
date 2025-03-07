@@ -92,7 +92,7 @@ The device will have no internet access during the exam, and any attempt to conn
         layout.addWidget(self.create_logo())
 
         # Exam length label
-        exam_label = QLabel(f'Exam Length: BRUH minutes', self)
+        exam_label = QLabel(f'\nOnce the Exam starts your connection will be disaled.\nDo forget to submit your exam before the end of the exam time.\n\nIf you close this app, your professor will be notified.\n\n Good Luck!', self)
         exam_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(exam_label)
 
