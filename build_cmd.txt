@@ -1,0 +1,8 @@
+Command to build with PyInstaller:
+
+
+MAC:
+pyinstaller --onefile --windowed --icon=icons/icon.icns --add-data "logo_long.png:." Sentinel.py
+
+WINDOWS:
+pyinstaller --onefile --windowed --icon=icons/icon.ico --add-data "logo_long.png:." Sentinel.py
