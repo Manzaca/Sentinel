@@ -4,7 +4,6 @@ import hashlib
 import hmac
 from cryptography.fernet import Fernet
 import base64
-import hmac
 
 
 def hash(binaries, secret_key: int):

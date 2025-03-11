@@ -1,18 +1,36 @@
 import sys
 import datetime
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QLineEdit, QStackedWidget, QProgressBar, QFileDialog
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QPixmap, QPalette, QColor
 import requests
 import platform
 import os
 import time
 import dep_signing as signature
 
+#                             |
 secret_key = '0000000000000000'  # Secret key for signing
 version = '1.0'  # Version of the program
 
 
+
+def apply_dark_theme(app):
+    dark_palette = QPalette()
+    dark_palette.setColor(QPalette.Window, QColor(45, 45, 45))
+    dark_palette.setColor(QPalette.WindowText, QColor(220, 220, 220))
+    dark_palette.setColor(QPalette.Base, QColor(35, 35, 35))
+    dark_palette.setColor(QPalette.AlternateBase, QColor(45, 45, 45))
+    dark_palette.setColor(QPalette.ToolTipBase, QColor(45, 45, 45))
+    dark_palette.setColor(QPalette.ToolTipText, QColor(220, 220, 220))
+    dark_palette.setColor(QPalette.Text, QColor(220, 220, 220))
+    dark_palette.setColor(QPalette.Button, QColor(50, 50, 50))
+    dark_palette.setColor(QPalette.ButtonText, QColor(220, 220, 220))
+    dark_palette.setColor(QPalette.BrightText, QColor(255, 0, 0))
+    dark_palette.setColor(QPalette.Highlight, QColor(42, 130, 218))
+    dark_palette.setColor(QPalette.HighlightedText, QColor(0, 0, 0))
+
+    app.setPalette(dark_palette)
 
 # Function to get the path to the resource files
 
@@ -25,7 +43,12 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
+class ConnectionWorker(QThread):
+    connection_checked = pyqtSignal(bool)  # Signal to send the connection status
 
+    def run(self):
+        result = conn_check()  # Run the connection check
+        self.connection_checked.emit(result)  # Emit result
 
 class MyApp(QWidget):
     def __init__(self):
@@ -35,6 +58,7 @@ class MyApp(QWidget):
         self.submission_time = None  # Stores submission time
         self.exam_path = None  # Stores selected file path
         self.elapsed_time = 0  # Stores the elapsed time in seconds
+        self.running = True
 
         self.initUI()
     
@@ -56,34 +80,76 @@ class MyApp(QWidget):
 
         self.stacked_widget.setCurrentWidget(self.intro_screen)
 
+    def start_connection_check(self):
+        self.conn_thread = ConnectionWorker()
+        self.conn_thread.connection_checked.connect(self.handle_connection_result)
+        self.conn_thread.start()
+    
+    def handle_connection_result(self, status):
+        if status and self.running:
+            self.invalidate_exam()
+
     def create_logo(self):
-        logo_label = QLabel(self)
-        logo_label.setPixmap(QPixmap(resource_path('logo_long.png')).scaled(457, 100))
-        logo_label.setAlignment(Qt.AlignCenter)
-        return logo_label
+        try:
+            logo_label = QLabel(self)
+            logo_label.setPixmap(QPixmap(resource_path('logo_long.png')).scaled(457, 100))
+            logo_label.setAlignment(Qt.AlignCenter)
+            return logo_label
+        except Exception as e:
+            print(f"Error in the image: {e}")
 
     def create_intro_screen(self):
         self.intro_screen = QWidget()
         layout = QVBoxLayout()
 
-        layout.addWidget(self.create_logo())
+        # Track logo clicks
+        self.logo_click_count = 0  
+
+        logo = self.create_logo()
+        logo.mousePressEvent = self.logo_clicked  # Connect logo click
+        layout.addWidget(logo)
 
         intro_text = '''Welcome to Sentinel
 
-This program has been designed to ensure a secure and distraction-free environment during your exam.
+    This program has been designed to ensure a secure and distraction-free environment during your exam.
 
-The device will have no internet access during the exam, and any attempt to connect to the internet will immediately terminate the program and invalidate your exam credentials.'''
+    The device will have no internet access during the exam, and any attempt to connect to the internet will immediately terminate the program and invalidate your exam credentials.'''
+        
         text_label = QLabel(intro_text, self)
         text_label.setWordWrap(True)
         text_label.setAlignment(Qt.AlignLeft)
         layout.addWidget(text_label)
 
-        proceed_button = QPushButton('Proceed to the Exam Setup', self)
+        proceed_button = QPushButton('Proceed to Exam Setup', self)
+        if platform.system() == 'Windows':
+            proceed_button.setStyleSheet("color: black")
         proceed_button.clicked.connect(lambda: self.stacked_widget.setCurrentWidget(self.exam_setup_screen))
         layout.addWidget(proceed_button)
 
         self.intro_screen.setLayout(layout)
         self.stacked_widget.addWidget(self.intro_screen)
+
+    def logo_clicked(self, event):
+        """Handle logo clicks and display only the logo and a message after 5 clicks."""
+        self.logo_click_count += 1
+        if self.logo_click_count >= 5:
+            self.logo_click_count = 0  # Reset counter
+            self.gotcha()  # Call gotcha function
+
+    def gotcha(self):
+        """Clear the intro screen and display only the logo with a message."""
+        for i in reversed(range(self.intro_screen.layout().count())):
+            widget = self.intro_screen.layout().itemAt(i).widget()
+            if widget:
+                widget.deleteLater()  # Remove all widgets
+
+        # Add only the logo and a message
+        logo = self.create_logo()
+        self.intro_screen.layout().addWidget(logo)
+
+        message = QLabel('Software created by A. Manzaca\nAll Rights Reserved 2025\n\nCopy it and I will install a virus on your goddam computer\nGot it?\n\nCheers!', self)
+        message.setAlignment(Qt.AlignCenter)
+        self.intro_screen.layout().addWidget(message)
 
     def create_exam_setup_screen(self):
         self.exam_setup_screen = QWidget()
@@ -92,7 +158,7 @@ The device will have no internet access during the exam, and any attempt to conn
         layout.addWidget(self.create_logo())
 
         # Exam length label
-        exam_label = QLabel(f'\nOnce the Exam starts your connection will be disaled.\nDo forget to submit your exam before the end of the exam time.\n\nIf you close this app, your professor will be notified.\n\n Good Luck!', self)
+        exam_label = QLabel(f'\nOnce the exam starts your connection will be disabled.\nDo not forget to submit your exam before the end of the exam time.\n\nIf you close this app, your professor will be notified.\n\n Good luck!', self)
         exam_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(exam_label)
 
@@ -116,8 +182,19 @@ The device will have no internet access during the exam, and any attempt to conn
         self.student_id_input.setPlaceholderText("Enter your 9-digit Student ID")
         self.student_id_input.setMaxLength(9)
         self.student_id_input.setAlignment(Qt.AlignCenter)
+        if platform.system() == 'Windows':
+            self.student_id_input.setStyleSheet("color: black")
         layout.addWidget(self.student_id_input)
 
+        # Create a dummy button to shift focus
+        dummy_button = QPushButton("", self)
+        dummy_button.setVisible(False)  # Hide the button
+        layout.addWidget(dummy_button)
+
+        # After setting up UI, move focus away from the input field
+        QTimer.singleShot(100, dummy_button.setFocus)
+
+        
         self.warning_label = QLabel("Invalid ID. The Student ID must be exactly 9 digits.", self)
         self.warning_label.setStyleSheet("color: red;")
         self.warning_label.setAlignment(Qt.AlignCenter)
@@ -125,6 +202,9 @@ The device will have no internet access during the exam, and any attempt to conn
         layout.addWidget(self.warning_label)
 
         start_exam_button = QPushButton('Start Exam', self)
+        
+        if platform.system() == 'Windows':
+            start_exam_button.setStyleSheet("color: black")
         start_exam_button.clicked.connect(self.start_exam)
         layout.addWidget(start_exam_button)
 
@@ -141,8 +221,10 @@ The device will have no internet access during the exam, and any attempt to conn
         self.exam_progress_label.setAlignment(Qt.AlignCenter)
         self.exam_layout.addWidget(self.exam_progress_label)
 
-        self.upload_button = QPushButton("Upload Exam and Submit", self)
+        self.upload_button = QPushButton(" Submit", self)
         self.upload_button.clicked.connect(self.upload_exam)
+        if platform.system() == 'Windows':
+            self.upload_button.setStyleSheet("color: black")
         self.exam_layout.addWidget(self.upload_button)
 
         self.exam_screen.setLayout(self.exam_layout)
@@ -164,7 +246,7 @@ The device will have no internet access during the exam, and any attempt to conn
             self.timer.start(1000)
             self.exam_progress_label.setStyleSheet("font-size: 40px; font-weight: light;")
             self.conn_check_timer = QTimer(self)
-            self.conn_check_timer.timeout.connect(self.check_connection)
+            self.conn_check_timer.timeout.connect(self.start_connection_check)
             self.conn_check_timer.start(1000)
         else:
             self.warning_label.show()
@@ -183,10 +265,6 @@ The device will have no internet access during the exam, and any attempt to conn
         # Update the label with the formatted time
         self.exam_progress_label.setText(f"{formatted_time}")
         
-
-    def check_connection(self):
-        if conn_check():
-            self.invalidate_exam()
 
     def upload_exam(self):
         options = QFileDialog.Options()
@@ -214,16 +292,20 @@ The device will have no internet access during the exam, and any attempt to conn
 
         disable_proxy()  # Deactivates proxy after exam submission
 
+        self.running = False
         self.show_confirmation_screen()
 
     def show_confirmation_screen(self):
+
         self.exam_layout.addWidget(self.create_logo())  # Add the logo
-        confirmation_label = QLabel("Your exam has been successfully saved.", self)
+        confirmation_label = QLabel("Your exam has been successfully saved.\nYou may close this window.", self)
         confirmation_label.setAlignment(Qt.AlignCenter)
         confirmation_label.setStyleSheet("font-size: 16px; font-weight: bold; color: green;")
         self.exam_layout.addWidget(confirmation_label)
 
     def invalidate_exam(self):
+
+        
         """Terminates the exam and displays an invalidation message"""
         self.timer.stop()
         self.conn_check_timer.stop()
@@ -234,8 +316,7 @@ The device will have no internet access during the exam, and any attempt to conn
                 widget.deleteLater()
 
         self.exam_layout.addWidget(self.create_logo())  # Add the logo
-        invalidated_text = r'''Your exam has been invalidated. 
-        Please contact the Professor for assistance.'''
+        invalidated_text = 'Your exam has been invalidated.\nPlease contact the Professor for assistance.'
         invalid_label = QLabel(invalidated_text, self)
         invalid_label.setAlignment(Qt.AlignCenter)
         invalid_label.setStyleSheet("font-size: 18px; font-weight: bold; color: red;")
@@ -243,6 +324,8 @@ The device will have no internet access during the exam, and any attempt to conn
 
 
 def conn_check(url="https://www.google.com", timeout=5):
+    
+    time.sleep(timeout+1)
     try:
         requests.get(url, timeout=timeout)
         print("Internet connection detected. Exam invalidated.")
@@ -250,6 +333,8 @@ def conn_check(url="https://www.google.com", timeout=5):
     except requests.RequestException:
         print("No internet connection detected. Proceeding with the exam.")
         return False  # No internet connection, safe to continue
+    else:
+        return False
 
 
 def enable_proxy():
@@ -273,6 +358,8 @@ def disable_proxy():
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
+    apply_dark_theme(app)
+
     window = MyApp()
     window.show()
     sys.exit(app.exec_())
