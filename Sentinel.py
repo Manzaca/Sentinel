@@ -1,7 +1,7 @@
 import sys
 import datetime
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
-from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QLineEdit, QStackedWidget, QProgressBar, QFileDialog
+from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QLineEdit, QStackedWidget, QFileDialog, QMessageBox
 from PyQt5.QtGui import QPixmap, QPalette, QColor
 import requests
 import platform
@@ -9,9 +9,9 @@ import os
 import time
 import dep_signing as signature
 
-#                             |
+#            |                |
 secret_key = '0000000000000000'  # Secret key for signing
-version = '1.0'  # Version of the program
+version = '1.1'  # Version of the program
 
 
 
@@ -31,6 +31,23 @@ def apply_dark_theme(app):
     dark_palette.setColor(QPalette.HighlightedText, QColor(0, 0, 0))
 
     app.setPalette(dark_palette)
+
+def apply_light_theme(app):
+    light_palette = QPalette()
+    light_palette.setColor(QPalette.Window, QColor(255, 255, 255))  # White background
+    light_palette.setColor(QPalette.WindowText, QColor(0, 0, 0))  # Black text
+    light_palette.setColor(QPalette.Base, QColor(255, 255, 255))  # White background for text inputs
+    light_palette.setColor(QPalette.AlternateBase, QColor(240, 240, 240))  # Lighter background for alternating items
+    light_palette.setColor(QPalette.ToolTipBase, QColor(255, 255, 220))  # Light yellow tooltips
+    light_palette.setColor(QPalette.ToolTipText, QColor(0, 0, 0))  # Black text in tooltips
+    light_palette.setColor(QPalette.Text, QColor(0, 0, 0))  # Black text
+    light_palette.setColor(QPalette.Button, QColor(240, 240, 240))  # Light gray button
+    light_palette.setColor(QPalette.ButtonText, QColor(0, 0, 0))  # Black text on buttons
+    light_palette.setColor(QPalette.BrightText, QColor(255, 0, 0))  # Red text for warnings
+    light_palette.setColor(QPalette.Highlight, QColor(42, 130, 218))  # Highlight color (blue)
+    light_palette.setColor(QPalette.HighlightedText, QColor(255, 255, 255))  # White text on highlighted items
+
+    app.setPalette(light_palette)
 
 # Function to get the path to the resource files
 
@@ -63,8 +80,15 @@ class MyApp(QWidget):
         self.initUI()
     
     def closeEvent(self, event):
-        disable_proxy()
-        event.accept()
+        apply_light_theme(app)
+        reply = QMessageBox.question(self, "Confirm Exit", "Are you sure you want to close?\n\nYour Exam will be terminated.", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+
+        if reply == QMessageBox.Yes:
+            disable_proxy()
+            event.accept()
+        else:
+            apply_dark_theme(app)
+            event.ignore()
 
     def initUI(self):
         self.setWindowTitle(f'Sentinel - Secure Exam Environment - {version+'.'+ secret_key[12:]}')
@@ -211,18 +235,20 @@ class MyApp(QWidget):
         self.exam_setup_screen.setLayout(layout)
         self.stacked_widget.addWidget(self.exam_setup_screen)
 
+
+
     def create_exam_screen(self):
         self.exam_screen = QWidget()
         self.exam_layout = QVBoxLayout()
-
-        self.exam_layout.addWidget(self.create_logo())
+        self.logo = self.create_logo()  # Create the logo widget
+        self.exam_layout.addWidget(self.logo)
 
         self.exam_progress_label = QLabel(f"00:00", self)
         self.exam_progress_label.setAlignment(Qt.AlignCenter)
         self.exam_layout.addWidget(self.exam_progress_label)
 
-        self.upload_button = QPushButton(" Submit", self)
-        self.upload_button.clicked.connect(self.upload_exam)
+        self.upload_button = QPushButton('Submit', self)
+        self.upload_button.clicked.connect(self.submit_exam)
         if platform.system() == 'Windows':
             self.upload_button.setStyleSheet("color: black")
         self.exam_layout.addWidget(self.upload_button)
@@ -230,27 +256,94 @@ class MyApp(QWidget):
         self.exam_screen.setLayout(self.exam_layout)
         self.stacked_widget.addWidget(self.exam_screen)
 
+    def submit_exam(self):
+        # Open file dialog to select a file (ensure it's not blocking)
+        self.exam_path, _ = QFileDialog.getOpenFileName(self, "Select Exam File", "", "All Files (*);;Text Files (*.txt)")
+
+        apply_light_theme(app)
+
+        if self.exam_path:  # If a file is selected
+            # Extract the file name from the full path
+            file_name = os.path.basename(self.exam_path)
+
+            
+            # Show confirmation dialog with the file name only
+            reply = QMessageBox.question(self, 'Confirm Exam Submission', 
+                                        f"You selected the file: {file_name}\n\n Do you wish to continue and end your exam?", 
+                                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+
+            if reply == QMessageBox.Yes:
+                # Proceed with the exam submission
+                apply_dark_theme(app)
+                self.finalize_exam()  # Call the function to end the exam and proceed
+            else:
+                # Reset, allow the user to select the file again
+                print("Exam submission canceled, please select the file again.")
+                apply_dark_theme(app)
+                return
+            
+        else:
+            
+            print("No file selected.")
+            apply_dark_theme(app)
+
+        
+
+
     def start_exam(self):
+        self.setMinimumSize(520, 400)
+        self.resize(520, 400)  # You can adjust the size here as needed
+        
         student_id = self.student_id_input.text()
         if len(student_id) == 9 and student_id.isdigit():
             enable_proxy()  # Activates proxy when exam starts
-            time.sleep(1)  # Simulate a brief delay for proxy setup
             self.warning_label.hide()
             self.start_time = datetime.datetime.now()
             print(f"Exam started at {self.start_time} for Student ID: {student_id}")
 
             self.stacked_widget.setCurrentWidget(self.exam_screen)
 
-            self.timer = QTimer(self)
-            self.timer.timeout.connect(self.update_timer)
-            self.timer.start(1000)
-            self.exam_progress_label.setStyleSheet("font-size: 40px; font-weight: light;")
-            self.conn_check_timer = QTimer(self)
-            self.conn_check_timer.timeout.connect(self.start_connection_check)
-            self.conn_check_timer.start(1000)
+            # Create the toggle button if it doesn't exist
+            if not hasattr(self, 'toggle_on_top_button'):
+                self.toggle_on_top_button = QPushButton("Toggle Always on Top", self)
+                self.toggle_on_top_button.clicked.connect(self.toggle_always_on_top)
+                if platform.system() == 'Windows':
+                    self.toggle_on_top_button.setStyleSheet("color: black")
+                self.layout().addWidget(self.toggle_on_top_button)
+
+                self.timer = QTimer(self)
+                self.timer.timeout.connect(self.update_timer)
+                self.timer.start(1000)
+                self.exam_progress_label.setStyleSheet("font-size: 40px; font-weight: light;")
+                self.conn_check_timer = QTimer(self)
+                self.conn_check_timer.timeout.connect(self.start_connection_check)
+                self.conn_check_timer.start(1000)
+            else:
+                self.warning_label.show()
+                self.student_id_input.clear()
+
+    def toggle_always_on_top(self):
+        if self.windowFlags() & Qt.WindowStaysOnTopHint:
+            # If the window is already always on top, remove the flag and show the logo
+            self.setWindowFlags(self.windowFlags() & ~Qt.WindowStaysOnTopHint)  # Remove "always on top" flag
+            self.logo.show()  # Show the logo again
+            self.upload_button.show()  # Show the submit button again
+            
+            # Resize the window back to its original size
+            self.setMinimumSize(520, 400)
+            self.resize(520, 400)  # You can adjust the size here as needed
         else:
-            self.warning_label.show()
-            self.student_id_input.clear()
+            # If the window is not always on top, add the flag and hide the logo
+            self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)  # Enable "always on top"
+            self.logo.hide()  # Hide the logo in always on top mode
+            self.upload_button.hide()  # Hide the submit button in always on top mode
+            
+            # Resize the window for the always-on-top mode
+            self.setMinimumSize(200, 135)  # Disable any minimum size constraints
+            self.resize(200, 135)  # You can adjust the size here as needed
+        
+        self.show()  # Re-apply window flags and size
+
 
     def update_timer(self):
         self.elapsed_time = int((datetime.datetime.now() - self.start_time).total_seconds())
